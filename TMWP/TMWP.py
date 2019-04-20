@@ -11,7 +11,6 @@ from sklearn.neural_network import MLPClassifier
 import warnings
 
 
-
 def load_pairs(path):
     pairs=set()
     file = open(path)
@@ -160,31 +159,21 @@ def generate_original_features(original_model, original_pairs, positive_projecti
     return features
 
 
-def train_classifier_and_report(pos_features, neg_features, original_positive_freatures, original_negative_freatures):
+def train_classifier(pos_features, neg_features, original_positive_freatures, original_negative_freatures):
     global n_clusters, n_embeddings
-    thres=0.8
     dim=2*n_clusters*n_embeddings
     pos_len = len(pos_features)
     neg_len = len(neg_features)
     pos_train=list()
-    pos_test=list()
     neg_train = list()
-    neg_test = list()
     for i in range(0,pos_len):
-        if random.random()>thres:
-            pos_train.append(pos_features[i])
-        else:
-            pos_test.append(pos_features[i])
+        pos_train.append(pos_features[i])
     for i in range(0, neg_len):
-        if random.random() > thres:
-            neg_train.append(neg_features[i])
-        else:
-            neg_test.append(neg_features[i])
+        neg_train.append(neg_features[i])
     for i in range(0,len(original_positive_freatures)):
         pos_train.append(original_positive_freatures[i])
     for i in range(0,len(original_negative_freatures)):
         neg_train.append(original_negative_freatures[i])
-
     train_data = np.zeros(shape=(len(pos_train)+len(neg_train), dim))
     train_labels = np.zeros(shape=(len(pos_train)+len(neg_train), 1))
     for i in range(0,len(pos_train)):
@@ -193,19 +182,23 @@ def train_classifier_and_report(pos_features, neg_features, original_positive_fr
     for i in range(0,len(neg_train)):
         train_data[i+len(pos_train)]=neg_train[i]
         train_labels[i+len(pos_train)]=0
-
-    test_data = np.zeros(shape=(len(pos_test)+len(neg_test), dim))
-    test_labels = np.zeros(shape=(len(pos_test)+len(neg_test), 1))
-    for i in range(0,len(pos_test)):
-        test_data[i]=pos_test[i]
-        test_labels[i]=1
-    for i in range(0,len(neg_test)):
-        test_data[i+len(pos_test)]=neg_test[i]
-        test_labels[i+len(pos_test)]=0
-
     #Train the model
     cls = MLPClassifier(solver='adam', alpha=1e-5)
     cls.fit(train_data, train_labels)
+    return cls
+
+
+def test_classifier(pos_features, neg_features, cls):
+    global n_clusters, n_embeddings
+    dim = 2 * n_clusters * n_embeddings
+    test_data = np.zeros(shape=(len(pos_features) + len(neg_features), dim))
+    test_labels = np.zeros(shape=(len(pos_features) + len(neg_features), 1))
+    for i in range(0, len(pos_features)):
+        test_data[i] = pos_features[i]
+        test_labels[i] = 1
+    for i in range(0, len(neg_features)):
+        test_data[i + len(pos_features)] = neg_features[i]
+        test_labels[i + len(pos_features)] = 0
     result=cls.score(test_data, test_labels)
     print(result)
 
@@ -229,29 +222,29 @@ print('load eng fast text model...')
 original_model = KeyedVectors.load_word2vec_format('en.vec')
 print('model eng load successfully')
 
-positive_pairs=load_pairs(lang+'_positive.txt')
-negative_pairs=load_pairs(lang+'_negative.txt')
+positive_pairs_train=load_pairs(lang+'_positive_train.txt')
+negative_pairs_train=load_pairs(lang+'_negative_train.txt')
+positive_pairs_test=load_pairs(lang+'_positive_test.txt')
+negative_pairs_test=load_pairs(lang+'_negative_test.txt')
 print('data load successfully')
 original_positive_pairs=load_pairs('en_positive.txt')
 original_negative_pairs=load_pairs('en_negative.txt')
 print('data load successfully')
 
-
 #projection learning
-pos_centroids, pos_new_pairs, pos_new_original_pairs=cluster_embeddings(positive_pairs, lang_model, original_positive_pairs, original_model, matrix)
+pos_centroids, pos_new_pairs, pos_new_original_pairs=cluster_embeddings(positive_pairs_train, lang_model, original_positive_pairs, original_model, matrix)
 print('cluster pos embeddings successfully')
-neg_centroids, neg_new_pairs, neg_new_original_pairs=cluster_embeddings(negative_pairs, lang_model, original_negative_pairs, original_model, matrix)
+neg_centroids, neg_new_pairs, neg_new_original_pairs=cluster_embeddings(negative_pairs_train, lang_model, original_negative_pairs, original_model, matrix)
 print('cluster neg embeddings successfully')
 pos_projections=learn_projections(lang_model, pos_new_pairs, original_model, pos_new_original_pairs)
 print('learn pos projections successfully')
 neg_projections=learn_projections(lang_model, neg_new_pairs, original_model, neg_new_original_pairs)
 print('learn neg projections successfully')
 
-
 #feature generation
-pos_features=generate_features(lang_model, positive_pairs, pos_projections, pos_centroids, neg_projections, neg_centroids)
+pos_features=generate_features(lang_model, positive_pairs_train, pos_projections, pos_centroids, neg_projections, neg_centroids)
 print('positive features generation successfully')
-neg_features=generate_features(lang_model, negative_pairs, pos_projections, pos_centroids, neg_projections, neg_centroids)
+neg_features=generate_features(lang_model, negative_pairs_train, pos_projections, pos_centroids, neg_projections, neg_centroids)
 print('negative features generation successfully')
 
 original_pos_features=generate_original_features(original_model, original_positive_pairs, pos_projections, pos_centroids, neg_projections, neg_centroids, matrix)
@@ -260,4 +253,11 @@ original_neg_features=generate_original_features(original_model, original_negati
 print('negative features generation successfully')
 
 #classifier training
-train_classifier_and_report(pos_features, neg_features, original_pos_features, original_neg_features)
+cls=train_classifier(pos_features, neg_features, original_pos_features, original_neg_features)
+
+#classifier testing
+pos_features=generate_features(lang_model, positive_pairs_test, pos_projections, pos_centroids, neg_projections, neg_centroids)
+print('positive features generation successfully')
+neg_features=generate_features(lang_model, negative_pairs_test, pos_projections, pos_centroids, neg_projections, neg_centroids)
+print('negative features generation successfully')
+test_classifier(pos_features, neg_features, cls)
